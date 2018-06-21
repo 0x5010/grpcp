@@ -1,6 +1,7 @@
 package grpcp
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -25,6 +26,9 @@ type ConnectionTracker struct {
 	timeout           time.Duration
 	checkReadyTimeout time.Duration
 	heartbeatInterval time.Duration
+
+	ctx    context.Context
+	cannel context.CancelFunc
 }
 
 // TrackerOption 选项
@@ -53,6 +57,7 @@ func SetHeartbeatInterval(interval time.Duration) TrackerOption {
 
 // New 初始化连接池
 func New(dial DialFunc, opts ...TrackerOption) *ConnectionTracker {
+	ctx, cannel := context.WithCancel(context.Background())
 	ct := &ConnectionTracker{
 		dial:              dial,
 		connections:       make(map[string]*trackedConn),
@@ -60,6 +65,9 @@ func New(dial DialFunc, opts ...TrackerOption) *ConnectionTracker {
 		timeout:           defaultTimeout,
 		checkReadyTimeout: checkReadyTimeout,
 		heartbeatInterval: heartbeatInterval,
+
+		ctx:    ctx,
+		cannel: cannel,
 	}
 
 	for _, opt := range opts {
@@ -82,7 +90,7 @@ func (ct *ConnectionTracker) GetConn(addr string) (*grpc.ClientConn, error) {
 	}
 	ct.Unlock()
 
-	err := tc.tryconn()
+	err := tc.tryconn(ct.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +103,11 @@ func (ct *ConnectionTracker) GetConn(addr string) (*grpc.ClientConn, error) {
 func (ct *ConnectionTracker) connShutdown(addr string) {
 	ct.Lock()
 	defer ct.Unlock()
-	delete(ct.alives, addr)
+	conn, ok := ct.alives[addr]
+	if ok {
+		conn.cannel()
+		delete(ct.alives, addr)
+	}
 }
 
 // Alives 当前存活连接

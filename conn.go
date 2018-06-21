@@ -31,9 +31,10 @@ type trackedConn struct {
 	state   connState
 	expires time.Time
 	retry   int
+	cannel  context.CancelFunc
 }
 
-func (tc *trackedConn) tryconn() error {
+func (tc *trackedConn) tryconn(ctx context.Context) error {
 	tc.Lock()
 	defer tc.Unlock()
 	if tc.conn != nil {
@@ -53,13 +54,16 @@ func (tc *trackedConn) tryconn() error {
 	}
 	tc.conn = conn
 
-	ctx, cancel := context.WithTimeout(context.Background(), checkReadyTimeout)
+	readyCtx, cancel := context.WithTimeout(ctx, tc.tracker.checkReadyTimeout)
 	defer cancel()
 
-	if ok := tc.isReady(ctx); !ok {
+	if ok := tc.isReady(readyCtx); !ok {
 		return errNoReady
 	}
-	go tc.heartbeat(context.Background())
+
+	hbCtx, cancel := context.WithCancel(ctx)
+	tc.cannel = cancel
+	go tc.heartbeat(hbCtx)
 	return nil
 }
 
@@ -72,7 +76,7 @@ func (tc *trackedConn) getState() connState {
 func (tc *trackedConn) healthCheck(ctx context.Context) {
 	tc.Lock()
 	defer tc.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, checkReadyTimeout)
+	ctx, cancel := context.WithTimeout(ctx, tc.tracker.checkReadyTimeout)
 	defer cancel()
 
 	if ok := tc.isReady(ctx); !ok && tc.expired() {
@@ -120,7 +124,7 @@ func (tc *trackedConn) expired() bool {
 }
 
 func (tc *trackedConn) heartbeat(ctx context.Context) {
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(tc.tracker.heartbeatInterval)
 	for tc.getState() != shutdown {
 		select {
 		case <-ctx.Done():
