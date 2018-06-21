@@ -104,27 +104,26 @@ func (ct *ConnectionTracker) GetConn(addr string) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	ct.Lock()
-	ct.alives[addr] = tc
-	ct.Unlock()
 	return tc.conn, nil
 }
 
-func (ct *ConnectionTracker) connShutdown(addr string) {
+func (ct *ConnectionTracker) connReady(tc *trackedConn) {
 	ct.Lock()
 	defer ct.Unlock()
-	conn, ok := ct.alives[addr]
-	if ok {
-		conn.cannel()
-		delete(ct.alives, addr)
-	}
+	ct.alives[tc.addr] = tc
+}
+
+func (ct *ConnectionTracker) connUnReady(addr string) {
+	ct.Lock()
+	defer ct.Unlock()
+	delete(ct.alives, addr)
 }
 
 // Alives 当前存活连接
 func (ct *ConnectionTracker) Alives() []string {
-	alives := []string{}
 	ct.RLock()
 	defer ct.RUnlock()
+	alives := []string{}
 	for addr := range ct.alives {
 		alives = append(alives, addr)
 	}

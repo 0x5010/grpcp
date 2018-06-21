@@ -142,7 +142,14 @@ func TestHWServerWithGrpcp(t *testing.T) {
 func TestConnErrAddr(t *testing.T) {
 	s, addr := startHWServer(t)
 	defer s.GracefulStop()
-
+	dialF := func(addr string) (*grpc.ClientConn, error) {
+		return grpc.Dial(
+			addr,
+			grpc.WithInsecure(),
+			grpc.WithBlock(),
+			grpc.WithTimeout(1*time.Second),
+		)
+	}
 	pool := New(dialF, SetCheckReadyTimeout(1*time.Second))
 
 	conn, err := pool.GetConn(addr)
@@ -150,14 +157,9 @@ func TestConnErrAddr(t *testing.T) {
 		t.Fatal(err)
 	}
 	testHelloworld(t, conn)
-	errAddr1 := "asdfaf"
-	errAddr2 := ":80"
+	errAddr := "xxxx"
 
-	_, err = pool.GetConn(errAddr1)
-	if err == nil {
-		t.Fatal("conn err addr no raise error")
-	}
-	_, err = pool.GetConn(errAddr2)
+	_, err = pool.GetConn(errAddr)
 	if err == nil {
 		t.Fatal("conn err addr no raise error")
 	}
@@ -184,6 +186,7 @@ func TestStopServer(t *testing.T) {
 	alives := pool.Alives()
 	testAlives(t, alives, []string{addr})
 
+	conn.Close()
 	s.Stop()
 	time.Sleep(10 * time.Second)
 
@@ -236,6 +239,10 @@ func TestRaceGetConn(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestConnIdle(t *testing.T) {
+
 }
 
 func testHelloworld(t *testing.T, conn *grpc.ClientConn) bool {

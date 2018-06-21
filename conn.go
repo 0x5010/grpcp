@@ -115,18 +115,20 @@ func (tc *trackedConn) ready() {
 	tc.state = ready
 	tc.expires = time.Now().Add(tc.tracker.timeout)
 	tc.retry = 0
+	tc.tracker.connReady(tc)
 }
 
 func (tc *trackedConn) idle() {
 	tc.state = idle
 	tc.retry++
-	tc.tracker.connShutdown(tc.addr)
+	tc.tracker.connUnReady(tc.addr)
 }
 
 func (tc *trackedConn) shutdown() {
 	tc.state = shutdown
 	tc.conn.Close()
-	tc.tracker.connShutdown(tc.addr)
+	tc.cannel()
+	tc.tracker.connUnReady(tc.addr)
 }
 
 func (tc *trackedConn) expired() bool {
