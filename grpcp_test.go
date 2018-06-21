@@ -14,12 +14,15 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"reflect"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/bouk/monkey"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	pb "google.golang.org/grpc/examples/helloworld/helloworld"
 	"google.golang.org/grpc/reflection"
 )
@@ -220,6 +223,8 @@ func TestClosePool(t *testing.T) {
 
 	pool.cannel()
 	time.Sleep(2 * time.Second)
+	alives = pool.Alives()
+	testAlives(t, alives, []string{})
 }
 
 func TestRaceGetConn(t *testing.T) {
@@ -242,6 +247,68 @@ func TestRaceGetConn(t *testing.T) {
 }
 
 func TestConnIdle(t *testing.T) {
+	s, addr := startHWServer(t)
+	defer s.GracefulStop()
+
+	pool := New(
+		dialF,
+	)
+
+	_, err := pool.GetConn(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := pool.connections[addr]
+	tc.idle()
+	_, err = pool.GetConn(addr)
+	if err != errNoReady {
+		t.Fatalf("GetConn when state idle, raise %v, want errNoReady.", err)
+	}
+}
+
+func TestConnExpired(t *testing.T) {
+	s, addr := startHWServer(t)
+	defer s.GracefulStop()
+
+	pool := New(
+		dialF,
+		SetTimeout(2*time.Second),
+		SetCheckReadyTimeout(1*time.Second),
+		SetHeartbeatInterval(1*time.Second),
+	)
+
+	var conn *grpc.ClientConn
+	count := 0
+	monkey.PatchInstanceMethod(reflect.TypeOf(conn), "GetState", func(_ *grpc.ClientConn) connectivity.State {
+		if count == 0 {
+			count++
+			return connectivity.Ready
+		}
+		if count%2 == 0 {
+			count++
+			return connectivity.Idle
+		}
+		count++
+		return connectivity.TransientFailure
+	})
+
+	monkey.PatchInstanceMethod(reflect.TypeOf(conn), "WaitForStateChange", func(_ *grpc.ClientConn, ctx context.Context, sourceState connectivity.State) bool {
+		return false
+	})
+
+	conn, err := pool.GetConn(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testHelloworld(t, conn)
+	alives := pool.Alives()
+	testAlives(t, alives, []string{addr})
+
+	time.Sleep(5 * time.Second)
+
+	// conn no ready, expired.
+	alives = pool.Alives()
+	testAlives(t, alives, []string{})
 
 }
 
