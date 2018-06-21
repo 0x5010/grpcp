@@ -259,6 +259,7 @@ func TestConnIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc := pool.connections[addr]
+	tc.cannel()
 	tc.idle()
 	_, err = pool.GetConn(addr)
 	if err != errNoReady {
@@ -278,18 +279,13 @@ func TestConnExpired(t *testing.T) {
 	)
 
 	var conn *grpc.ClientConn
-	count := 0
+	first := true
 	monkey.PatchInstanceMethod(reflect.TypeOf(conn), "GetState", func(_ *grpc.ClientConn) connectivity.State {
-		if count == 0 {
-			count++
+		if first == true {
+			first = false
 			return connectivity.Ready
 		}
-		if count%2 == 0 {
-			count++
-			return connectivity.Idle
-		}
-		count++
-		return connectivity.TransientFailure
+		return connectivity.Idle
 	})
 
 	monkey.PatchInstanceMethod(reflect.TypeOf(conn), "WaitForStateChange", func(_ *grpc.ClientConn, ctx context.Context, sourceState connectivity.State) bool {
