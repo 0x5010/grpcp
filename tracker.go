@@ -24,10 +24,10 @@ const (
 	heartbeatInterval = 20 * time.Second
 )
 
-// DialFunc 建联方式
+// DialFunc dial function
 type DialFunc func(addr string) (*grpc.ClientConn, error)
 
-// ConnectionTracker 连接池
+// ConnectionTracker keep connections and maintain their status
 type ConnectionTracker struct {
 	sync.RWMutex
 	dial              DialFunc
@@ -41,31 +41,31 @@ type ConnectionTracker struct {
 	cannel context.CancelFunc
 }
 
-// TrackerOption 选项
+// TrackerOption initialization options
 type TrackerOption func(*ConnectionTracker)
 
-// SetTimeout 自定义超时
+// SetTimeout custom timeout
 func SetTimeout(timeout time.Duration) TrackerOption {
 	return func(o *ConnectionTracker) {
 		o.timeout = timeout
 	}
 }
 
-// SetCheckReadyTimeout 自定义检测超时时间
+// SetCheckReadyTimeout custom checkReadyTimeout
 func SetCheckReadyTimeout(timeout time.Duration) TrackerOption {
 	return func(o *ConnectionTracker) {
 		o.checkReadyTimeout = timeout
 	}
 }
 
-// SetHeartbeatInterval 自定义心跳间隔
+// SetHeartbeatInterval custom heartbeatInterval
 func SetHeartbeatInterval(interval time.Duration) TrackerOption {
 	return func(o *ConnectionTracker) {
 		o.heartbeatInterval = interval
 	}
 }
 
-// New 初始化连接池
+// New initialization ConnectionTracker
 func New(dial DialFunc, opts ...TrackerOption) *ConnectionTracker {
 	ctx, cannel := context.WithCancel(context.Background())
 	ct := &ConnectionTracker{
@@ -87,7 +87,7 @@ func New(dial DialFunc, opts ...TrackerOption) *ConnectionTracker {
 	return ct
 }
 
-// GetConn 创建或获取已有连接
+// GetConn create or get an existing connection
 func (ct *ConnectionTracker) GetConn(addr string) (*grpc.ClientConn, error) {
 	ct.Lock()
 	tc, ok := ct.connections[addr]
@@ -119,7 +119,7 @@ func (ct *ConnectionTracker) connUnReady(addr string) {
 	delete(ct.alives, addr)
 }
 
-// Alives 当前存活连接
+// Alives current live connections
 func (ct *ConnectionTracker) Alives() []string {
 	ct.RLock()
 	defer ct.RUnlock()

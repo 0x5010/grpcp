@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	// Pool 默认连接池
+	// Pool default pool
 	Pool  *ConnectionTracker
 	dialF = func(addr string) (*grpc.ClientConn, error) {
 		return grpc.Dial(
@@ -29,12 +29,12 @@ func init() {
 	Pool = New(dialF)
 }
 
-// GetConn 创建或获取已有连接
+// GetConn create or get an existing connection from default pool
 func GetConn(addr string) (*grpc.ClientConn, error) {
 	return Pool.GetConn(addr)
 }
 
-// Alives 当前存活连接
+// Alives current live connections from default pool
 func Alives() []string {
 	return Pool.Alives()
 }

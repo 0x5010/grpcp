@@ -4,6 +4,7 @@ grpcp is a Grpc Persistent Connection Pool.
 [![Build Status](https://travis-ci.org/0x5010/grpcp.png?branch=master)](https://travis-ci.org/0x5010/grpcp)
 [![codecov](https://codecov.io/gh/0x5010/grpcp/branch/master/graph/badge.svg)](https://codecov.io/gh/0x5010/grpcp/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/0x5010/grpcp)](https://goreportcard.com/report/github.com/0x5010/grpcp)
+[![Godoc](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)](https://godoc.org/github.com/0x5010/grpcp)
 
 Installation
 -----------
