@@ -137,6 +137,7 @@ func TestHWServerWithGrpcp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer conn.Close()
 	testHelloworld(t, conn)
 	alives := Alives()
 	testAlives(t, alives, []string{addr})
