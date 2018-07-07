@@ -159,7 +159,7 @@ type trackedConn struct {
 func (tc *trackedConn) tryconn(ctx context.Context) error {
 	tc.Lock()
 	defer tc.Unlock()
-	if tc.conn != nil {
+	if tc.conn != nil { // another goroutine got the write lock first
 		if tc.state == ready {
 			return nil
 		}
@@ -167,12 +167,13 @@ func (tc *trackedConn) tryconn(ctx context.Context) error {
 			return errNoReady
 		}
 	}
+
+	if tc.conn != nil { // close shutdown conn
+		tc.conn.Close()
+	}
 	conn, err := tc.tracker.dial(tc.addr)
 	if err != nil {
 		return err
-	}
-	if tc.conn != nil {
-		tc.conn.Close()
 	}
 	tc.conn = conn
 
