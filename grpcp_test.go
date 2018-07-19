@@ -14,13 +14,11 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"reflect"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/bouk/monkey"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	pb "google.golang.org/grpc/examples/helloworld/helloworld"
@@ -284,9 +282,7 @@ func TestConnIdle(t *testing.T) {
 	s, addr := startHWServer(t)
 	defer s.GracefulStop()
 
-	pool := New(
-		dialF,
-	)
+	pool := New(dialF)
 
 	_, err := pool.GetConn(addr)
 	if err != nil {
@@ -305,26 +301,22 @@ func TestConnExpired(t *testing.T) {
 	s, addr := startHWServer(t)
 	defer s.GracefulStop()
 
-	pool := New(
-		dialF,
-		SetTimeout(2*time.Second),
-		SetCheckReadyTimeout(1*time.Second),
-		SetHeartbeatInterval(1*time.Second),
-	)
-
-	var conn *grpc.ClientConn
 	first := true
-	monkey.PatchInstanceMethod(reflect.TypeOf(conn), "GetState", func(_ *grpc.ClientConn) connectivity.State {
+	mockCheckFunc := func(ctx context.Context, conn *grpc.ClientConn) connectivity.State {
 		if first == true {
 			first = false
 			return connectivity.Ready
 		}
 		return connectivity.Idle
-	})
+	}
 
-	monkey.PatchInstanceMethod(reflect.TypeOf(conn), "WaitForStateChange", func(_ *grpc.ClientConn, ctx context.Context, sourceState connectivity.State) bool {
-		return false
-	})
+	pool := New(
+		dialF,
+		SetTimeout(2*time.Second),
+		SetCheckReadyTimeout(1*time.Second),
+		SetHeartbeatInterval(1*time.Second),
+		CustomReadyCheck(mockCheckFunc),
+	)
 
 	conn, err := pool.GetConn(addr)
 	if err != nil {
