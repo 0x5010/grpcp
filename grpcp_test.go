@@ -32,6 +32,7 @@ func TestNewWithOption(t *testing.T) {
 		timeout           time.Duration
 		checkReadyTimeout time.Duration
 		heartbeatInterval time.Duration
+		readyCheckFunc    ReadyCheckFunc
 	}
 
 	td := 123 * time.Second
@@ -48,6 +49,7 @@ func TestNewWithOption(t *testing.T) {
 				timeout:           defaultTimeout,
 				checkReadyTimeout: checkReadyTimeout,
 				heartbeatInterval: heartbeatInterval,
+				readyCheckFunc:    defaultReadyCheck,
 			},
 		},
 		{
@@ -57,6 +59,7 @@ func TestNewWithOption(t *testing.T) {
 				timeout:           td,
 				checkReadyTimeout: checkReadyTimeout,
 				heartbeatInterval: heartbeatInterval,
+				readyCheckFunc:    defaultReadyCheck,
 			},
 		},
 		{
@@ -66,6 +69,7 @@ func TestNewWithOption(t *testing.T) {
 				timeout:           defaultTimeout,
 				checkReadyTimeout: td,
 				heartbeatInterval: heartbeatInterval,
+				readyCheckFunc:    defaultReadyCheck,
 			},
 		},
 		{
@@ -75,6 +79,17 @@ func TestNewWithOption(t *testing.T) {
 				timeout:           defaultTimeout,
 				checkReadyTimeout: checkReadyTimeout,
 				heartbeatInterval: td,
+				readyCheckFunc:    defaultReadyCheck,
+			},
+		},
+		{
+			name: "CustomReadyCheck",
+			args: []TrackerOption{CustomReadyCheck(myReadyCheck)},
+			want: want{
+				timeout:           defaultTimeout,
+				checkReadyTimeout: checkReadyTimeout,
+				heartbeatInterval: heartbeatInterval,
+				readyCheckFunc:    myReadyCheck,
 			},
 		},
 	}
@@ -89,6 +104,9 @@ func TestNewWithOption(t *testing.T) {
 			}
 			if tc.heartbeatInterval != tt.want.heartbeatInterval {
 				t.Errorf("tracker heartbeatInterval is %d, expected %d.", tc.timeout, tt.want.heartbeatInterval)
+			}
+			if fmt.Sprintf("%v", tc.readyCheck) != fmt.Sprintf("%v", tt.want.readyCheckFunc) {
+				t.Errorf("tracker readyCheckFunc is %d, expected %d.", tc.timeout, tt.want.heartbeatInterval)
 			}
 		})
 	}
@@ -143,6 +161,21 @@ func TestHWServerWithGrpcp(t *testing.T) {
 	testAlives(t, alives, []string{addr})
 }
 
+func TestHWServerWithCustomReadyCheck(t *testing.T) {
+	s, addr := startHWServer(t)
+	defer s.GracefulStop()
+
+	pool := New(dialF, CustomReadyCheck(myReadyCheck))
+	conn, err := pool.GetConn(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	testHelloworld(t, conn)
+	alives := pool.Alives()
+	testAlives(t, alives, []string{addr})
+}
+
 func TestConnErrAddr(t *testing.T) {
 	s, addr := startHWServer(t)
 	defer s.GracefulStop()
@@ -189,7 +222,7 @@ func TestStopServer(t *testing.T) {
 	testHelloworld(t, conn)
 	alives := pool.Alives()
 	testAlives(t, alives, []string{addr})
-
+	time.Sleep(5 * time.Second)
 	conn.Close()
 	s.Stop()
 	time.Sleep(10 * time.Second)
@@ -336,4 +369,14 @@ func testAlives(t *testing.T, alives, expected []string) {
 			t.Fatalf("alives addr wrong value. got=%s, want=%s", alives[0], addr)
 		}
 	}
+}
+
+func myReadyCheck(ctx context.Context, conn *grpc.ClientConn) connectivity.State {
+	name := "test"
+	client := pb.NewGreeterClient(conn)
+	_, err := client.SayHello(context.Background(), &pb.HelloRequest{Name: name})
+	if err != nil {
+		return connectivity.Idle
+	}
+	return connectivity.Ready
 }

@@ -26,13 +26,21 @@ const (
 	heartbeatInterval = 20 * time.Second
 )
 
+var (
+	errNoReady = fmt.Errorf("no ready")
+)
+
 // DialFunc dial function
 type DialFunc func(addr string) (*grpc.ClientConn, error)
+
+// ReadyCheckFunc check conn is ready function
+type ReadyCheckFunc func(ctx context.Context, conn *grpc.ClientConn) connectivity.State
 
 // ConnectionTracker keep connections and maintain their status
 type ConnectionTracker struct {
 	sync.RWMutex
 	dial              DialFunc
+	readyCheck        ReadyCheckFunc
 	connections       map[string]*trackedConn
 	alives            map[string]*trackedConn
 	timeout           time.Duration
@@ -67,11 +75,19 @@ func SetHeartbeatInterval(interval time.Duration) TrackerOption {
 	}
 }
 
+// CustomReadyCheck custom ready check function
+func CustomReadyCheck(f ReadyCheckFunc) TrackerOption {
+	return func(o *ConnectionTracker) {
+		o.readyCheck = f
+	}
+}
+
 // New initialization ConnectionTracker
 func New(dial DialFunc, opts ...TrackerOption) *ConnectionTracker {
 	ctx, cannel := context.WithCancel(context.Background())
 	ct := &ConnectionTracker{
 		dial:              dial,
+		readyCheck:        defaultReadyCheck,
 		connections:       make(map[string]*trackedConn),
 		alives:            make(map[string]*trackedConn),
 		timeout:           defaultTimeout,
@@ -132,25 +148,12 @@ func (ct *ConnectionTracker) Alives() []string {
 	return alives
 }
 
-type connState int
-
-const (
-	connecting connState = iota
-	ready
-	idle
-	shutdown
-)
-
-var (
-	errNoReady = fmt.Errorf("no ready")
-)
-
 type trackedConn struct {
 	sync.RWMutex
 	addr    string
 	conn    *grpc.ClientConn
 	tracker *ConnectionTracker
-	state   connState
+	state   connectivity.State
 	expires time.Time
 	retry   int
 	cannel  context.CancelFunc
@@ -160,10 +163,10 @@ func (tc *trackedConn) tryconn(ctx context.Context) error {
 	tc.Lock()
 	defer tc.Unlock()
 	if tc.conn != nil { // another goroutine got the write lock first
-		if tc.state == ready {
+		if tc.state == connectivity.Ready {
 			return nil
 		}
-		if tc.state == idle {
+		if tc.state == connectivity.Idle {
 			return errNoReady
 		}
 	}
@@ -180,9 +183,10 @@ func (tc *trackedConn) tryconn(ctx context.Context) error {
 	readyCtx, cancel := context.WithTimeout(ctx, tc.tracker.checkReadyTimeout)
 	defer cancel()
 
-	if ok := tc.isReady(readyCtx); !ok {
+	if tc.tracker.readyCheck(readyCtx, tc.conn) != connectivity.Ready {
 		return errNoReady
 	}
+	tc.ready()
 
 	hbCtx, cancel := context.WithCancel(ctx)
 	tc.cannel = cancel
@@ -190,7 +194,7 @@ func (tc *trackedConn) tryconn(ctx context.Context) error {
 	return nil
 }
 
-func (tc *trackedConn) getState() connState {
+func (tc *trackedConn) getState() connectivity.State {
 	tc.RLock()
 	defer tc.RUnlock()
 	return tc.state
@@ -202,43 +206,47 @@ func (tc *trackedConn) healthCheck(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, tc.tracker.checkReadyTimeout)
 	defer cancel()
 
-	if ok := tc.isReady(ctx); !ok && tc.expired() {
+	switch tc.tracker.readyCheck(ctx, tc.conn) {
+	case connectivity.Ready:
+		tc.ready()
+	case connectivity.Shutdown:
 		tc.shutdown()
+	case connectivity.Idle:
+		if tc.expired() {
+			tc.shutdown()
+		} else {
+			tc.idle()
+		}
 	}
 }
 
-func (tc *trackedConn) isReady(ctx context.Context) bool {
+func defaultReadyCheck(ctx context.Context, conn *grpc.ClientConn) connectivity.State {
 	for {
-		s := tc.conn.GetState()
-		if s == connectivity.Ready {
-			tc.ready()
-			return true
-		} else if s == connectivity.Shutdown {
-			tc.shutdown()
-			return false
+		s := conn.GetState()
+		if s == connectivity.Ready || s == connectivity.Shutdown {
+			return s
 		}
-		if !tc.conn.WaitForStateChange(ctx, s) {
-			tc.idle()
-			return false
+		if !conn.WaitForStateChange(ctx, s) {
+			return connectivity.Idle
 		}
 	}
 }
 
 func (tc *trackedConn) ready() {
-	tc.state = ready
+	tc.state = connectivity.Ready
 	tc.expires = time.Now().Add(tc.tracker.timeout)
 	tc.retry = 0
 	tc.tracker.connReady(tc)
 }
 
 func (tc *trackedConn) idle() {
-	tc.state = idle
+	tc.state = connectivity.Idle
 	tc.retry++
 	tc.tracker.connUnReady(tc.addr)
 }
 
 func (tc *trackedConn) shutdown() {
-	tc.state = shutdown
+	tc.state = connectivity.Shutdown
 	tc.conn.Close()
 	tc.cannel()
 	tc.tracker.connUnReady(tc.addr)
@@ -250,7 +258,7 @@ func (tc *trackedConn) expired() bool {
 
 func (tc *trackedConn) heartbeat(ctx context.Context) {
 	ticker := time.NewTicker(tc.tracker.heartbeatInterval)
-	for tc.getState() != shutdown {
+	for tc.getState() != connectivity.Shutdown {
 		select {
 		case <-ctx.Done():
 			tc.shutdown()
