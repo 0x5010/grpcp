@@ -270,9 +270,10 @@ func (tc *trackedConn) heartbeat(ctx context.Context) {
 }
 
 var (
-	// Pool default pool
-	Pool  *ConnectionTracker
-	dialF = func(addr string) (*grpc.ClientConn, error) {
+	// defaultPool default pool
+	defaultPool *ConnectionTracker
+	once        sync.Once
+	dialF       = func(addr string) (*grpc.ClientConn, error) {
 		return grpc.Dial(
 			addr,
 			grpc.WithInsecure(),
@@ -280,16 +281,19 @@ var (
 	}
 )
 
-func init() {
-	Pool = New(dialF)
+func pool() *ConnectionTracker {
+	once.Do(func() {
+		defaultPool = New(dialF)
+	})
+	return defaultPool
 }
 
 // GetConn create or get an existing connection from default pool
 func GetConn(addr string) (*grpc.ClientConn, error) {
-	return Pool.GetConn(addr)
+	return pool().GetConn(addr)
 }
 
 // Alives current live connections from default pool
 func Alives() []string {
-	return Pool.Alives()
+	return pool().Alives()
 }
