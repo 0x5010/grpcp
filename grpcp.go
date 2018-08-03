@@ -183,14 +183,15 @@ func (tc *trackedConn) tryconn(ctx context.Context) error {
 	readyCtx, cancel := context.WithTimeout(ctx, tc.tracker.checkReadyTimeout)
 	defer cancel()
 
-	if tc.tracker.readyCheck(readyCtx, tc.conn) != connectivity.Ready {
+	checkStatus := tc.tracker.readyCheck(readyCtx, tc.conn)
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	tc.cannel = hbCancel
+	go tc.heartbeat(hbCtx)
+
+	if checkStatus != connectivity.Ready {
 		return errNoReady
 	}
 	tc.ready()
-
-	hbCtx, cancel := context.WithCancel(ctx)
-	tc.cannel = cancel
-	go tc.heartbeat(hbCtx)
 	return nil
 }
 
