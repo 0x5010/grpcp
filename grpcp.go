@@ -1,3 +1,5 @@
+package grpcp
+
 /*
  *
  * Created by 0x5010 on 2018/06/20.
@@ -8,7 +10,6 @@
  * Licensed under the MIT license.
  *
  */
-package grpcp
 
 import (
 	"context"
