@@ -160,6 +160,20 @@ func TestHWServerWithGrpcp(t *testing.T) {
 	testAlives(t, alives, []string{addr})
 }
 
+func TestHWServerWithDial(t *testing.T) {
+	s, addr := startHWServer(t)
+	defer s.GracefulStop()
+
+	conn, err := Dial(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	testHelloworld(t, conn)
+	alives := Alives()
+	testAlives(t, alives, []string{addr})
+}
+
 func TestHWServerWithCustomReadyCheck(t *testing.T) {
 	s, addr := startHWServer(t)
 	defer s.GracefulStop()

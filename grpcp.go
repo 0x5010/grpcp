@@ -108,6 +108,15 @@ func New(dial DialFunc, opts ...TrackerOption) *ConnectionTracker {
 
 // GetConn create or get an existing connection
 func (ct *ConnectionTracker) GetConn(addr string) (*grpc.ClientConn, error) {
+	return ct.getConn(addr, false)
+}
+
+// Dial force to create new connection, this operation will close old connection!
+func (ct *ConnectionTracker) Dial(addr string) (*grpc.ClientConn, error) {
+	return ct.getConn(addr, true)
+}
+
+func (ct *ConnectionTracker) getConn(addr string, force bool) (*grpc.ClientConn, error) {
 	ct.Lock()
 	tc, ok := ct.connections[addr]
 	if !ok {
@@ -119,7 +128,7 @@ func (ct *ConnectionTracker) GetConn(addr string) (*grpc.ClientConn, error) {
 	}
 	ct.Unlock()
 
-	err := tc.tryconn(ct.ctx)
+	err := tc.tryconn(ct.ctx, force)
 	if err != nil {
 		return nil, err
 	}
@@ -160,10 +169,10 @@ type trackedConn struct {
 	cannel  context.CancelFunc
 }
 
-func (tc *trackedConn) tryconn(ctx context.Context) error {
+func (tc *trackedConn) tryconn(ctx context.Context, force bool) error {
 	tc.Lock()
 	defer tc.Unlock()
-	if tc.conn != nil { // another goroutine got the write lock first
+	if !force && tc.conn != nil { // another goroutine got the write lock first
 		if tc.state == connectivity.Ready {
 			return nil
 		}
@@ -293,6 +302,11 @@ func pool() *ConnectionTracker {
 // GetConn create or get an existing connection from default pool
 func GetConn(addr string) (*grpc.ClientConn, error) {
 	return pool().GetConn(addr)
+}
+
+// Dial force to create new connection from default pool, this operation will close old connection!
+func Dial(addr string) (*grpc.ClientConn, error) {
+	return pool().Dial(addr)
 }
 
 // Alives current live connections from default pool
