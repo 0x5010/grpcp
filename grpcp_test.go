@@ -164,6 +164,8 @@ func TestHWServerWithDial(t *testing.T) {
 	s, addr := startHWServer(t)
 	defer s.GracefulStop()
 
+	defaultPool = New(dialF)
+
 	conn, err := Dial(addr)
 	if err != nil {
 		t.Fatal(err)
